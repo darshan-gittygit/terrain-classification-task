@@ -3,7 +3,9 @@
 # ─────────────────────────────────────────────
 
 import os
-from torch.utils.data import DataLoader
+import torch
+import numpy as np
+from torch.utils.data import DataLoader, WeightedRandomSampler
 from torchvision import datasets, transforms
 from config import (
     IMG_SIZE, MEAN, STD, BATCH_SIZE, NUM_WORKERS,
@@ -93,20 +95,36 @@ def get_dataloaders(data_root: str):
     assert len(train_dataset) > 0, "Train dataset is empty — check your dataset path and class names"
     assert len(test_dataset)  > 0, "Test dataset is empty — check your dataset path and class names"
 
+    # ── WeightedRandomSampler ──────────────────────
+    # Compensates for class imbalance (e.g. water=362 vs forest=45K)
+    # Each class gets equal probability of being sampled per epoch
+    targets      = np.array(train_dataset.targets)
+    class_counts = np.bincount(targets)
+    class_weights = 1.0 / class_counts.astype(np.float32)
+    sample_weights = class_weights[targets]
+
+    sampler = WeightedRandomSampler(
+        weights     = torch.from_numpy(sample_weights),
+        num_samples = len(train_dataset),
+        replacement = True,
+    )
+
+    print(f"[Dataset] Class counts: { {c: int(class_counts[i]) for i, c in enumerate(class_names)} }")
+    print(f"[Dataset] Train samples: {len(train_dataset)} | Test samples: {len(test_dataset)}")
+
     train_loader = DataLoader(
         train_dataset,
-        batch_size=BATCH_SIZE,
-        shuffle=True,
-        num_workers=NUM_WORKERS,
-        pin_memory=True,
+        batch_size  = BATCH_SIZE,
+        sampler     = sampler,       # replaces shuffle=True
+        num_workers = NUM_WORKERS,
+        pin_memory  = True,
     )
     test_loader = DataLoader(
         test_dataset,
-        batch_size=BATCH_SIZE,
-        shuffle=False,
-        num_workers=NUM_WORKERS,
-        pin_memory=True,
+        batch_size  = BATCH_SIZE,
+        shuffle     = False,
+        num_workers = NUM_WORKERS,
+        pin_memory  = True,
     )
 
-    print(f"[Dataset] Train samples: {len(train_dataset)} | Test samples: {len(test_dataset)}")
     return train_loader, test_loader, class_names, len(class_names)
